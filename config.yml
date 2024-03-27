@@ -1,0 +1,12 @@
+input_path: '/home/cesar/Dropbox/Cesar/PostDoc/Projects/Gambia/Data/2024/Processed/CH4-CO2-Excetainers'
+filename: 'CO2-CH4-dC_Gambia_2024.xlsx'
+HS_vol: 35 # [ml]
+TOT_vol: 140 #[ml]
+
+## Constant
+R: 8.314 #[m3K-1mol-1]
+H_CH4_T25: 1.4E-5 #[molm-3Pa-1] Henry coeficient for CH4 at 25degC Sanders 2015
+H_CO2_T25: 3.3E-4 #[molm-3Pa-1] Henry coeficient for CO2 at 25degC Sanders 2015
+dlnH_CH4_d1T: 1750 #Sanders 2015
+dlnH_CO2_d1T: 2392.86 #Sanders 2015
+RVDPD: 0.0111802 #Picarro manual Page 102
