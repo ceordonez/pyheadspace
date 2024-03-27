@@ -16,3 +16,8 @@ def read_config(filename):
     with open(filename, 'r') as file:
         conf_file = yaml.safe_load(file)
     return conf_file
+
+def read_constant(filename):
+    with open(filename, 'r') as file:
+        conf_file = yaml.safe_load(file)
+    return conf_file

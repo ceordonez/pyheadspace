@@ -1,147 +1,137 @@
-import numpy as np
-from scipy.optimize import curve_fit,minimize
-import matplotlib.pyplot as plt
 
+import numpy as np
+from scr.read_data import read_constant
 
 def process_data(cfg, data):
-    return []
-
-def ppm_to_mol(c_ppm, airpres_hpa, totalvol_ml, airvol_ml, eqtemp_c, R):
-    """Convert ppm to mol assuming ideal gas.
+    """Process data.
 
     Parameters
     ----------
-    c_ppm : float
-        Concentration of ppm
-    airpres_hpa : float
-        Air pressure in hPa
-    totalvol_ml : float
-        Total volume of the vial in mL
-    airvol_ml : float
-        Volume of the headspace (gas) in mL
-    eqtemp_c : float
-        Equilibrium teperature in degC
-    R : float
-        Ideal gas constant in TODO
-
-    Returns
-    -------
-    c_mol, c_pa
-    c_mol: float
-        Gas concentration in mols
-    c_pa: float
-        Gas partial pressure in Pascal
-    """
-    c_pa = c_ppm/10000*airpres_hpa
-    c_mol = c_pa*(totalvol_ml-airvol_ml)/1000/1000/(R*(eqtemp_c+273.15))
-    return c_mol, c_pa
-
-def equibrium(ce_mol, ce_pa, ca_mol, eqtemp_c, hcp25, dlnHcpd1_T, airvol_ml):
-    """Calculates concentration in the vial assuming gas equilimbrium between the gas and liquid phase.
-
-    Parameters
-    ----------
-    ce_mol: float
-        
-    ce_pa: float
-
-    ca_mol: float
-    eqtemp_c : float
-        Equilibrium teperature in degC
-    hcp25: float
-        Henry's coefficient at 25 degC and 1 atm
-    dlnHcpd1_T: float
-    airvol_ml : float
-        Volume of the headspace (gas) in mL
+    cfg : TODO
+    data : TODO
 
     Returns
     -------
     TODO
+
     """
-    hcp_t = hcp(eqtemp_c, hcp25, dlnHcpd1_T)
-    caq_mol = hcp_t*ce_pa*airvol_ml/1000
-    ntotal = ce_mol + caq_mol
-    c_molm3 = (ntotal - ca_mol)/(airvol_ml/1000/1000)
-    c_umolL = c_molm3*1000
-    return c_umolL
+    constant = read_constant('utils/constant.yml')
+    for varname in cfg['varnames']:
+        variables = cfg['varnames'][varname]
+        colname = '_'.join([varname, 'mmolm3'])
+        c_mmolm3, d13c_permil = equilibrium(cfg, data, variables, constant)
+        data[colname] = c_mmolm3
+        colname = '_'.join(['d13', varname, 'permil'])
+        data[colname] = d13c_permil
+    return data
+
+
+def ppm_to_mol(cfg, c_ppm, temp_c, data, constant):
+    """Transform ppm concentration to mol.
+
+    Parameters
+    ----------
+    cfg : TODO
+    c_ppm : TODO
+    temp_c : TODO
+    data : TODO
+
+    Returns
+    -------
+    TODO
+
+    """
+    c_pa = c_ppm/10000*data['AirP_hPa']
+    c_mol = c_pa*(cfg['hs_vol'])/1000/1000/(constant['R']*(temp_c + 273.15))
+    return c_mol, c_pa
 
 def hcp(airtemp_c, hcp25, dlnHcpd1_T):
     hcp_t = hcp25*np.exp(dlnHcpd1_T*(1/(airtemp_c+273.15)-1/298.15))/1000
     return hcp_t
 
-def reaction_constant(eqtemp_c):
-    eqtemp_k = eqtemp_c + 273.15
-    pkw = -(6.0875-4470.99/eqtemp_k-0.01706*eqtemp_k)
-    pk1 = 0.000011*eqtemp_c**2-0.012*eqtemp_c+6.58
-    pk2 = 0.00009*eqtemp_c**2-0.0137*eqtemp_c+10.62
-    return pkw, pk1, pk2
+def equilibrium(cfg, data, variables, constant):
+    """TODO: Docstring for equilibrium.
 
-def bottle_equilibruim_dic(pHeq, eqtemp_c):
-    pkw, pk1, pk2 = reaction_constant(eqtemp_c)
-    a0 = 1/(1+10**(-pk1+pHeq)+10**(-(pk1+pk2)+2*pHeq))
-    a1 = 1/(10**(-pHeq+pk1)+1+10**(-pk2+pHeq))
-    a2 = 1/(10**(-2*pHeq+pk1+pk2)+10**(-pHeq+pk2)+1)
-    return pkw, a0, a1, a2, a0+a1+a2
+    Parameters
+    ----------
+    cfg : TODO
+    data : TODO
+    variables : TODO
+    constant : TODO
 
-def carbon_balance(pHeq, ce_mol, eqtemp_c, alk, hcp25, dlnHcpd1_T, airvol_ml):
-    pkw, a0, a1, a2, _ = bottle_equilibruim_dic(pHeq, eqtemp_c)
-    dic_molm3 = 1000*(alk*0.001 - 10**(-pkw+pHeq)+10**(-pHeq))/(a1+2*a2)
-    h2co3_molm3 = a0*dic_molm3
-    hco3_molm3 = a1*dic_molm3
-    co3_molm3 = a2*dic_molm3
-    pco2_pa = h2co3_molm3/(hcp(eqtemp_c, hcp25, dlnHcpd1_T)*1000)
-    dic_mol = dic_molm3 * airvol_ml*1E-6+ce_mol
-    return pco2_pa, dic_mol, dic_molm3, h2co3_molm3
+    Returns
+    -------
+    TODO
 
-def opt_fuc_bottle(pHeq, ce_pa, ce_mol, eqtemp_c, alk, hcp25, dlnHcpd1_T, airvol_ml):
-    pco2_pa, _, _, _= carbon_balance(pHeq, ce_mol, eqtemp_c, alk, hcp25, dlnHcpd1_T, airvol_ml)
-    return (pco2_pa-ce_pa)**2*1E6
+    """
+    c_ppm = data[variables[0]]
+    ce_mol, ce_pa = ppm_to_mol(cfg, c_ppm, data['Te_degC'], data, constant)
+    catm_ppm = data[variables[1]]
+    ca_mol, _ = ppm_to_mol(cfg, catm_ppm, data['AirT_degC'], data, constant)
+    hcp_molLPa = hcp(data['Te_degC'], constant[variables[2]], constant[variables[3]])
+    caq_mol = hcp_molLPa*ce_pa*(cfg['tot_vol'] - cfg['hs_vol'])/1000
+    ntotal = ce_mol + caq_mol
+    c_molm3 = (ntotal - ca_mol)/((cfg['tot_vol'] - cfg['hs_vol'])/1000/1000)
+    c_mmolm3 = c_molm3*1000
+    d13c_permil = dC_equilibrium(cfg, data, variables, constant, caq_mol)
+    return c_mmolm3, d13c_permil
 
-def opt_fuc_insitu(pHeq, wsdic_mol, ca_mol, ce_mol, eqtemp_c, alk, hcp25, dlnHcpd1_T, airvol_ml):
-    _, _, dic_molm3, _ = carbon_balance(pHeq, ce_mol, eqtemp_c, alk, hcp25, dlnHcpd1_T, airvol_ml)
-    wsdic_molm3 = (wsdic_mol-ca_mol)/(airvol_ml*1E-6)
-    return (dic_molm3-wsdic_molm3)**2*1E9
+def dC_equilibrium(cfg, data, variables, constant, caq_mol):
+    """TODO: Docstring for equilibrium.
 
-def alkalinity_correction(c_ppm, alk, pH, airpres_hpa, volumen_ml, temp_c, constant):
-    ce_ppm, ca_ppm = c_ppm
-    hcp25, dlnHcpd1_T, R = constant
-    ctdtemp_c, eqtemp_c = temp_c
-    totalvol_ml, airvol_ml = volumen_ml
-    ce_mol, ce_pa = ppm_to_mol(ce_ppm, airpres_hpa, totalvol_ml, airvol_ml, eqtemp_c, R)
-    ca_mol, _ = ppm_to_mol(ca_ppm, airpres_hpa, totalvol_ml, airvol_ml, eqtemp_c, R)
-    opt_bottle = minimize(opt_fuc_bottle, pH, args=(ce_pa, ce_mol, eqtemp_c, alk, hcp25, dlnHcpd1_T, airvol_ml), method='Nelder-Mead')
-    _, dic_mol, _, _ = carbon_balance(opt_bottle.x[0], ce_mol, eqtemp_c, alk, hcp25, dlnHcpd1_T, airvol_ml)
-    opt_insitu = minimize(opt_fuc_insitu, pH, args=(dic_mol, ca_mol, ce_mol, ctdtemp_c, alk, hcp25, dlnHcpd1_T, airvol_ml), method='Nelder-Mead')
-    _, _, _, co2_molm3 = carbon_balance(opt_insitu.x[0], ce_mol, ctdtemp_c, alk, hcp25, dlnHcpd1_T, airvol_ml)
-    return co2_molm3*1000
+    Parameters
+    ----------
+    cfg : TODO
+    data : TODO
+    variables : TODO
+    constant : TODO
 
-def main():
-    ce_ppm = 300
-    ca_ppm = 402.9
-    airpres_hpa = 1036
-    totalvol_ml = 1160
-    airvol_ml = 600
-    eqtemp_c = 7
-    ctdtemp_c = 5
-    R = 8.314
-    dlnHcpd1_T = 2392.86
-    hcp25 = 3.3E-4
-    alk = np.arange(3,4,.1)
-    pH = 8.1
+    Returns
+    -------
+    TODO
 
-    constant = (hcp25, dlnHcpd1_T, R)
-    co2_mmolm3 = []
-    for alk_i in alk:
-        co2_mmolm3.append(alkalinity_correction((ce_ppm, ca_ppm), alk_i, pH, airpres_hpa, (totalvol_ml, airvol_ml), (ctdtemp_c, eqtemp_c), constant))
-    co2_mmolm3 = np.array(co2_mmolm3)
-    ce_mol, ce_pa = ppm_to_mol(ce_ppm, airpres_hpa, totalvol_ml, airvol_ml, eqtemp_c, R)
-    ca_mol, _ = ppm_to_mol(ca_ppm, airpres_hpa, totalvol_ml, airvol_ml, eqtemp_c, R)
-    c_umolL = equibrium(ce_mol, ce_pa, ca_mol, eqtemp_c, hcp25, dlnHcpd1_T, airvol_ml)
-    plt.plot((alk[round(len(alk)/2)]-alk)*50, (co2_mmolm3[round(len(alk)/2)]-co2_mmolm3)/co2_mmolm3[round(len(alk)/2)]*1000)
-    plt.show()
-    #print(c_umolL)
+    """
+    ce_ppm = data[variables[0]]
+    dce_permil = data[variables[4]]
+    ce_mol, _ = ppm_to_mol(cfg, ce_ppm, data['Te_degC'], data, constant)
+    e13c_mol, e12c_mol = c13(constant, ce_mol, dce_permil)
+
+    ca_ppm = data[variables[1]]
+    dca_permil = data[variables[5]]
+    ca_mol, _ =ppm_to_mol(cfg, ca_ppm, data['AirT_degC'], data, constant)
+    a13c_mol, a12c_mol = c13(constant, ca_mol, dca_permil)
+
+    aq13c12c = constant['RVDPD']*(data[variables[4]]/1000+1)
+    aq12c_mol = caq_mol/(1 + aq13c12c)
+    aq13c_mol = caq_mol - aq12c_mol
+    tot13c_mol = e13c_mol + aq13c_mol
+    tot12c_mol = e12c_mol + aq12c_mol
+    w13c_mol = tot13c_mol - a13c_mol
+    w12c_mol = tot12c_mol - a12c_mol
+    w13c12c = w13c_mol/w12c_mol
+    dc_permil = (w13c12c/constant['RVDPD']-1)*1000
+    return dc_permil
 
 
 
-if __name__ == "__main__":
-    main()
+def c13(constant, c_mol, dc_permil):
+    """TODO: Docstring for c13.
+
+    Parameters
+    ----------
+    cfg : TODO
+    variables : TODO
+    constant : TODO
+    data : TODO
+
+    Returns
+    -------
+    TODO
+
+    """
+
+    e13c12c = constant['RVDPD']*(dc_permil/1000+1)
+    e12c = c_mol/(1 + e13c12c)
+    e13c = c_mol - e12c
+    return e13c, e12c
+
