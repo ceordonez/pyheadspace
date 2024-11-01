@@ -3,7 +3,7 @@ input_path: '/home/cesar/Dropbox/Cesar/PostDoc/Projects/Gambia/Data/2024/Process
 output_path: '/home/cesar/Dropbox/Cesar/PostDoc/Projects/Gambia/Data/2024/Processed/CH4-CO2-Excetainers'
 
 filename: 'CO2-CH4-dC_Gambia_2024.xlsx'
-filename_out: 'CO2-CH4-Gambia_2024_processed.xlsx'
+filename_out: 'CO2-CH4-Gambia_2024_processed_salcorrected.xlsx'
 
 #Head space features
 hs_vol: 35 # [ml]

@@ -19,7 +19,7 @@ def process_data(cfg, data):
     for varname in cfg['varnames']:
         variables = cfg['varnames'][varname]
         colname = '_'.join([varname, 'mmolm3'])
-        c_mmolm3, d13c_permil = equilibrium(cfg, data, variables, constant)
+        c_mmolm3, d13c_permil = equilibrium(cfg, varname, data, variables, constant)
         data[colname] = c_mmolm3
         colname = '_'.join(['d13', varname, 'permil'])
         data[colname] = d13c_permil
@@ -45,11 +45,15 @@ def ppm_to_mol(cfg, c_ppm, temp_c, data, constant):
     c_mol = c_pa*(cfg['hs_vol'])/1000/1000/(constant['R']*(temp_c + 273.15))
     return c_mol, c_pa
 
-def hcp(airtemp_c, hcp25, dlnHcpd1_T):
-    hcp_t = hcp25*np.exp(dlnHcpd1_T*(1/(airtemp_c+273.15)-1/298.15))/1000
+def hcp(varname, temp_c, sal_psu, hcp25, dlnHcpd1_T):
+    hcp_t = hcp25*np.exp(dlnHcpd1_T*(1/(temp_c + 273.15)-1/298.15))/1000
+    if varname == 'ch4':
+        hcp_t = hcpch4_sal(hcp_t, sal_psu, temp_c)
+    elif varname == 'co2':
+        hcp_t = hcpco2_sal(hcp_t, sal_psu, temp_c)
     return hcp_t
 
-def equilibrium(cfg, data, variables, constant):
+def equilibrium(cfg, varname, data, variables, constant):
     """TODO: Docstring for equilibrium.
 
     Parameters
@@ -68,7 +72,7 @@ def equilibrium(cfg, data, variables, constant):
     ce_mol, ce_pa = ppm_to_mol(cfg, c_ppm, data['Te_degC'], data, constant)
     catm_ppm = data[variables[1]]
     ca_mol, _ = ppm_to_mol(cfg, catm_ppm, data['AirT_degC'], data, constant)
-    hcp_molLPa = hcp(data['Te_degC'], constant[variables[2]], constant[variables[3]])
+    hcp_molLPa = hcp(varname, data['Te_degC'], data['sal_psu'], constant[variables[2]], constant[variables[3]])
     caq_mol = hcp_molLPa*ce_pa*(cfg['tot_vol'] - cfg['hs_vol'])/1000
     ntotal = ce_mol + caq_mol
     c_molm3 = (ntotal - ca_mol)/((cfg['tot_vol'] - cfg['hs_vol'])/1000/1000)
@@ -129,9 +133,55 @@ def c13(constant, c_mol, dc_permil):
     TODO
 
     """
-
     e13c12c = constant['RVDPD']*(dc_permil/1000+1)
     e12c = c_mol/(1 + e13c12c)
     e13c = c_mol - e12c
     return e13c, e12c
+
+def hcpco2_sal(hcp_molLPa, sal_psu, temp_c):
+    """Correct Henrys coefficient for CO2 by salinity (Lee et al., 2020).
+
+    Parameters
+    ----------
+    hcp : TODO
+    sal_psu : TODO
+    temp_c : TODO
+
+    Returns
+    -------
+    TODO
+    """
+    temp_k = temp_c + 273.15
+    ksalt = 0.11572 - 6.0293E-4*temp_k +3.5817E-6*temp_k**2 - 3.772E-9*temp_k**3
+    hcpsalt_molLPa = hcp_molLPa*np.exp(ksalt*sal_psu*1E-3)
+    return hcpsalt_molLPa
+
+def hcpch4_sal(hcp_molLPa, sal_psu, temp_c):
+    """Correct Henrys coefficient for CH4 by salinity (Lee et al., 2020).
+
+    Parameters
+    ----------
+    hcp : TODO
+    sal_psu : TODO
+    temp_c : TODO
+
+    Returns
+    -------
+    TODO
+    """
+    #A1 = -68.8862
+    #A2 = 101.4956
+    #A3 = 28.7314
+    #B1 = -0.076146
+    #B2 = 0.043970
+    #B3 = -0.0068612
+
+    #temp_k = temp_c + 273.15
+    #lnb = A1 + A2*(100/temp_k) + A3*np.log(temp_k/100) + sal_psu/100*(B1 + B2*temp_k/100 + (B3*temp_k/100)**2)
+
+    ksalt = 3.38828 - 0.0318765*temp_c + 1.22003E-4*temp_c**2 - 2.31891E-7*temp_c**3 +2.22938E-10*temp_c**4 - 8.83764E-14*temp_c**5
+    hcpsalt_molLPa = hcp_molLPa*np.exp(ksalt*sal_psu*1E-3)
+
+    return hcpsalt_molLPa
+
 
