@@ -1,3 +1,3 @@
-# PYHEADSPACE
+# PY-HEADSPACE
 
-Estimates CH[_4] and CO[_2] concentration usgin the headspace method.
+Estimates $\text{CH}_4$ and $\text{CO}_2$ concentration usgin the headspace method.
