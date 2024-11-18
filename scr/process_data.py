@@ -58,13 +58,7 @@ def equilibrium(cfg, varname, data, variables, constant):
     catm_ppm = data[variables[1]]
     ca_mol, _ = ppm_to_mol(cfg, catm_ppm, data["AirT_degC"], data["AirP_hPa"], constant)
     # Estimate Henry's constant
-    hcp_molLPa = hcp(
-        varname,
-        data["Te_degC"],
-        data["sal_psu"],
-        constant[variables[2]],
-        constant[variables[3]],
-    )
+    hcp_molLPa = hcp(varname, data["Te_degC"], data["sal_psu"], constant)
     # mols in the water after shaking
     caq_mol = hcp_molLPa * ce_pa * (cfg["tot_vol"] - cfg["hs_vol"]) / 1000
     ntotal = ce_mol + caq_mol
@@ -102,8 +96,8 @@ def ppm_to_mol(cfg, c_ppm, temp_c, airP_hpa, constant):
     return c_mol, c_pa
 
 
-def hcp(varname, temp_c, sal_psu, hcp25, dlnHcpd1_T):
-    """Calculate Henry's constant corrected by salinity based on XX
+def hcp(varname, temp_c, sal_psu, constant):
+    """Calculate Henry's constant corrected by salinity based on Sander 2023 (eq. (5)).
 
     Parameters
     ----------
@@ -113,16 +107,22 @@ def hcp(varname, temp_c, sal_psu, hcp25, dlnHcpd1_T):
         Temperature of equilibrium.
     sal_psu : pandas.Series
         Water salinity in PSU
-    hcp25 : float
-        Henry's constant at 25 degree C (defined in utils/constant.yml)
-    dlnHcpd1_T : float
-        parameters to transform Henry's coefficient from 25 to any other temperature (see XX).
 
     Returns
     -------
     hcp_t : pandas.Series
         Henry's coefficient for temperature of equilibrium.
     """
+    hcp25 = ""
+    dlnHcpd1_T = ""
+
+    if varname == "ch4":
+        hcp25 = constant["H_CH4_T25"]
+        dlnHcpd1_T = constant["dlnH_CH4_d1T"]
+    elif varname == "co2":
+        hcp25 = constant["H_CO2_T25"]
+        dlnHcpd1_T = constant["dlnH_CO2_d1T"]
+
     hcp_t = hcp25 * np.exp(dlnHcpd1_T * (1 / (temp_c + 273.15) - 1 / 298.15)) / 1000
     if varname == "ch4":
         hcp_t = hcpch4_sal(hcp_t, sal_psu, temp_c)
@@ -154,16 +154,16 @@ def dC_equilibrium(cfg, data, variables, constant, caq_mol):
 
     """
     ce_ppm = data[variables[0]]
-    dce_permil = data[variables[4]]
+    dce_permil = data[variables[2]]
     ce_mol, _ = ppm_to_mol(cfg, ce_ppm, data["Te_degC"], data["AirP_hPa"], constant)
     e13c_mol, e12c_mol = c13(constant, ce_mol, dce_permil)
 
     ca_ppm = data[variables[1]]
-    dca_permil = data[variables[5]]
+    dca_permil = data[variables[3]]
     ca_mol, _ = ppm_to_mol(cfg, ca_ppm, data["AirT_degC"], data["AirP_hPa"], constant)
     a13c_mol, a12c_mol = c13(constant, ca_mol, dca_permil)
 
-    aq13c12c = constant["RVDPD"] * (data[variables[4]] / 1000 + 1)
+    aq13c12c = constant["RVDPD"] * (data[variables[2]] / 1000 + 1)
     aq12c_mol = caq_mol / (1 + aq13c12c)
     aq13c_mol = caq_mol - aq12c_mol
     tot13c_mol = e13c_mol + aq13c_mol
