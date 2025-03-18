@@ -58,9 +58,11 @@ def equilibrium(cfg, varname, data, variables, constant):
     catm_ppm = data[variables[1]]
     ca_mol, _ = ppm_to_mol(cfg, catm_ppm, data["AirT_degC"], data["AirP_hPa"], constant)
     # Estimate Henry's constant
-    hcp_molLPa = hcp(varname, data["Te_degC"], data["sal_psu"], constant)
+    hcp_molm3Pa = hcp(
+        varname, data["Te_degC"], data["sal_psu"], constant, cfg["H_coeff"]
+    )
     # mols in the water after shaking
-    caq_mol = hcp_molLPa * ce_pa * (cfg["tot_vol"] - cfg["hs_vol"]) / 1000
+    caq_mol = hcp_molm3Pa * ce_pa * (cfg["tot_vol"] - cfg["hs_vol"]) / 1000 / 1000
     ntotal = ce_mol + caq_mol
     # mols in the water before shaking
     c_molm3 = (ntotal - ca_mol) / ((cfg["tot_vol"] - cfg["hs_vol"]) / 1000 / 1000)
@@ -96,39 +98,43 @@ def ppm_to_mol(cfg, c_ppm, temp_c, airP_hpa, constant):
     return c_mol, c_pa
 
 
-def hcp(varname, temp_c, sal_psu, constant):
-    """Calculate Henry's constant corrected by salinity based on Sander 2023 (eq. (5)).
+def hcp(varname, temp_c, sal_psu, constant, coeff=1):
+    """Calculate Henry's Coefficient
 
     Parameters
     ----------
+
     varname : string
         Could be ch4 or co2
     temp_c : pandas.Series
         Temperature of equilibrium.
     sal_psu : pandas.Series
         Water salinity in PSU
+    constant : dict
+        Constant data (defined in utils/constant.yml).
+    coeff : float
+        0 Use Sanders 2015 - Only consider correction by temperature (Use this for freshwaters).
+        1 Use Wiss 1974 to estimate Henry's Coefficient for CO2 and Wiesenburg & Guinasso 1979 for CH4, considering Salinity and Temperature coerrections (default).
 
     Returns
     -------
-    hcp_t : pandas.Series
-        Henry's coefficient for temperature of equilibrium.
+    hcp_t : float
+            Henry's coefficient for CH4 or CO2 in mmolm-3Pa-1
     """
-    hcp25 = ""
-    dlnHcpd1_T = ""
 
-    if varname == "ch4":
-        hcp25 = constant["H_CH4_T25"]
-        dlnHcpd1_T = constant["dlnH_CH4_d1T"]
-    elif varname == "co2":
-        hcp25 = constant["H_CO2_T25"]
-        dlnHcpd1_T = constant["dlnH_CO2_d1T"]
+    if coeff == 0:
+        if varname == "ch4":
+            hcp25 = constant["H_CH4_T25"]
+            dlnHcpd1_T = constant["dlnH_CH4_d1T"]
+        elif varname == "co2":
+            hcp25 = constant["H_CO2_T25"]
+            dlnHcpd1_T = constant["dlnH_CO2_d1T"]
+        hcp_t = hcp25 * np.exp(dlnHcpd1_T * (1 / (temp_c + 273.15) - 1 / 298.15))
+        return hcp_t
 
-    hcp_t = hcp25 * np.exp(dlnHcpd1_T * (1 / (temp_c + 273.15) - 1 / 298.15)) / 1000
-    if varname == "ch4":
-        hcp_t = hcpch4_sal(hcp_t, sal_psu, temp_c)
-    elif varname == "co2":
-        hcp_t = hcpco2_sal(hcp_t, sal_psu, temp_c)
-    return hcp_t
+    elif coeff == 1:
+        hcp_t = hcp_sal(varname, sal_psu, temp_c)
+        return hcp_t
 
 
 def dC_equilibrium(cfg, data, variables, constant, caq_mol):
@@ -200,8 +206,59 @@ def c13(constant, c_mol, dc_permil):
     return e13c, e12c
 
 
-def hcpco2_sal(hcp_molLPa, sal_psu, temp_c):
-    """Correct Henrys coefficient for CO2 by salinity (Lee et al., 2020).
+def hcp_sal(var, sal_psu, temp_c):
+    """Correct Henrys coefficient for CO2 (Weiss 1974) and CH4 (Wiesenburg and Guinasso 1979) considering salnity and temperature corrections.
+
+    Parameters
+    ----------
+    var : string.
+        Variable name (ch4, co2).
+    sal_psu : pandas.Series or float.
+        Salinity in PSU.
+    temp_c : pandas.Series or float.
+        Water temperature in deg C.
+
+    Returns
+    -------
+    hcpsalt_mmolm3Pa : list
+        Henry's coefficient estimated considering salinity and temperature corrections [molm-3Pa-1]
+    """
+    temp_k = temp_c + 273.15
+    if var == "co2":  # folowing Weiss 1974
+        A = [-58.0931, 90.5069, 22.2940]
+        B = [0.027766, -0.025888, 0.0050578]
+        hcpsalt_molm3Pa = (
+            np.exp(
+                A[0]
+                + A[1] * 100 / temp_k
+                + A[2] * np.log(temp_k / 100)
+                + sal_psu * (B[0] + B[1] * temp_k / 100 + B[2] * (temp_k / 100) ** 2)
+            )
+            * 1000
+            / 101325
+        )
+    elif var == "ch4":  # folowing Wiesenburg and Guinasso 1979
+        A = [-417.5053, 599.8626, 380.3636, -62.0764]
+        B = [-0.064236, 0.03498, -0.0052732]
+        c_molm3 = (
+            np.exp(
+                +A[0]
+                + A[1] * 100 / temp_k
+                + A[2] * np.log(temp_k / 100)
+                + A[3] * (temp_k / 100)
+                + sal_psu * (B[0] + B[1] * temp_k / 100 + B[2] * (temp_k / 100) ** 2)
+            )
+            * 1000
+            / 1e9
+        )
+        hcpsalt_molm3Pa = c_molm3 / 101325
+
+    return hcpsalt_molm3Pa
+
+
+def hcpch4_sal(hcp_molLPa, sal_psu, temp_c):
+    """Correct Henrys coefficient for CH4 by salinity (Lee et al., 2020).
+    NOT USED
 
     Parameters
     ----------
@@ -210,6 +267,50 @@ def hcpco2_sal(hcp_molLPa, sal_psu, temp_c):
     sal_psu : pandas.Series
         Water salinity in PSU
     temp_c : TODO
+        Equilibrium water temperature in deg C.
+
+    Returns
+    -------
+    hcpsalt_molLPa : float
+        Henry's coefficient corrected by salinity
+
+    """
+    # A1 = -68.8862
+    # A2 = 101.4956
+    # A3 = 28.7314
+    # B1 = -0.076146
+    # B2 = 0.043970
+    # B3 = -0.0068612
+
+    temp_k = temp_c + 273.15
+    # lnb = A1 + A2*(100/temp_k) + A3*np.log(temp_k/100) + sal_psu/100*(B1 + B2*temp_k/100 + (B3*temp_k/100)**2)
+
+    ksalt = (
+        3.38828
+        - 0.0318765 * temp_k
+        + 1.22003e-4 * temp_k**2
+        - 2.31891e-7 * temp_k**3
+        + 2.22938e-10 * temp_k**4
+        - 8.83764e-14 * temp_k**5
+    )
+    sr_gkg = 35.16504 / 35 * sal_psu
+    m = 1000 / 31.4038218 * (sr_gkg / (1 - sr_gkg))
+    hcpsalt_molLPa = hcp_molLPa * np.exp(ksalt * m)
+
+    return hcpsalt_molLPa
+
+
+def hcpco2_sal(hcp_molLPa, sal_psu, temp_c):
+    """Correct Henrys coefficient for CO2 by salinity (Lee et al., 2020).
+    NOT USED
+
+    Parameters
+    ----------
+    hcp_molLPa : float
+        Henry's coefficient for insitu temperature in molL-1Pa-1
+    sal_psu : pandas.Series
+        Water salinity in PSU
+    temp_c : pandas.Series
         Equilibrium water temperature in deg C.
 
     Returns
@@ -220,35 +321,4 @@ def hcpco2_sal(hcp_molLPa, sal_psu, temp_c):
     temp_k = temp_c + 273.15
     ksalt = 0.11572 - 6.0293e-4 * temp_k + 3.5817e-6 * temp_k**2 - 3.772e-9 * temp_k**3
     hcpsalt_molLPa = hcp_molLPa * np.exp(ksalt * sal_psu * 1e-3)
-    return hcpsalt_molLPa
-
-
-def hcpch4_sal(hcp_molLPa, sal_psu, temp_c):
-    """Correct Henrys coefficient for CH4 by salinity (Lee et al., 2020).
-
-    Parameters
-    ----------
-    hcp_molLPa : float
-        Henry's coefficient for insitu temperature in molL-1Pa-1
-    sal_psu : pandas.Series
-        Water salinity in PSU
-    temp_c : TODO
-        Equilibrium water temperature in deg C.
-
-    Returns
-    -------
-    hcpsalt_molLPa : float
-        Henry's coefficient corrected by salinity
-
-    """
-    ksalt = (
-        3.38828
-        - 0.0318765 * temp_c
-        + 1.22003e-4 * temp_c**2
-        - 2.31891e-7 * temp_c**3
-        + 2.22938e-10 * temp_c**4
-        - 8.83764e-14 * temp_c**5
-    )
-    hcpsalt_molLPa = hcp_molLPa * np.exp(ksalt * sal_psu * 1e-3)
-
     return hcpsalt_molLPa

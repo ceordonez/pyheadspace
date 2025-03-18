@@ -2,7 +2,6 @@
 input_path: './template'
 output_path: './results'
 
-#FILENAMES
 filename: 'DataTemplate.xlsx'
 filename_out: 'Test.xlsx'
 
@@ -13,6 +12,10 @@ tot_vol: 140 # total volumn [ml]
 # 'varnames' define the column headers that will be use from the Input file to calculates the water concentration, this is organized as:
 # [Picarro sample concentration (ppm), Atm concentration (ppm) - or headspace concentration before shaking, isotopic signature of the sample, isotopic signature of the atmosphere]
 # The names can be changed but not the order.
+#
+H_coeff: 0 # 0: Sanders 2015 - Only temperature correction (Use this for freshwaters),
+           # 1: Weiss 1974, and Wiesenburg & Guinasso 1979 - Include salinity and temperature correction]
+
 varnames:
   ch4: ['HP_12CH4_dry_mean', 'CH4atm_ppm', 'HP_Delta_iCH4_Raw_mean', 'd13C_CH4atm_permil']
   co2: ['12CO2_mean', 'CO2atm_ppm', 'Delta_Raw_iCO2_mean', 'd13C_CO2atm_permil']
